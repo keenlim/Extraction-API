@@ -1,0 +1,159 @@
+{
+	"info": {
+		"_postman_id": "e54c5aa7-9ed8-4461-bda4-cb9e5120b999",
+		"name": "Extraction Collection",
+		"description": "Converts documents (office documents, .pdf) into Markdown format - providing 2 different python library framework\n\n- Unstructured.io\n    \n- MarkItDown",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "49126370",
+		"_collection_link": "https://knlim118-5941447.postman.co/workspace/Ke-En-Lim's-Workspace~1abd8eb6-81d0-4b7f-8308-7579fb0c45b3/collection/49126370-e54c5aa7-9ed8-4461-bda4-cb9e5120b999?action=share&source=collection_link&creator=49126370"
+	},
+	"item": [
+		{
+			"name": "Unstructured",
+			"item": [
+				{
+					"name": "Extract content from .pdf document",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"})",
+									"",
+									"const schema = {",
+									"    \"text\": {",
+									"        \"type\": \"string\"",
+									"    },",
+									"    \"metadata\": {",
+									"        \"fileName\": \"string\",",
+									"        \"fileSize\": \"string\",",
+									"        \"creationDate\": \"string \"",
+									"    }",
+									"}",
+									"",
+									"pm.test(\"Successfully extract text from document\", function () {",
+									"    pm.response.to.have.jsonSchema(schema)",
+									"})"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "/Users/keen/extraction-api/sample_docs/cpf-sample-2.pdf"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/unstructured/extracts",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"unstructured",
+								"extracts"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Extract content from .docx documents",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "/Users/keen/Downloads/FSC_R&R for Parties Involved.docx"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/unstructured/extracts",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"unstructured",
+								"extracts"
+							]
+						}
+					},
+					"response": []
+				}
+			],
+			"description": "Using Unstructured.io Python library, extract content from a document elements using functions"
+		},
+		{
+			"name": "MarkItDown",
+			"item": [
+				{
+					"name": "Extract content from .pdf document without images",
+					"request": {
+						"auth": {
+							"type": "apikey",
+							"apikey": [
+								{
+									"key": "value",
+									"value": "{{API-KEY}}",
+									"type": "string"
+								},
+								{
+									"key": "key",
+									"value": "API-KEY",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "/Users/keen/extraction-api/sample_docs/sample_docs.pdf"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/markitdown/extracts?enrich_pdf=False",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"markitdown",
+								"extracts"
+							],
+							"query": [
+								{
+									"key": "enrich_pdf",
+									"value": "False"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			],
+			"description": "Extract text and images from PDF using MarkItDown"
+		}
+	]
+}

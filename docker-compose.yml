@@ -1,0 +1,12 @@
+services:
+  extraction-endpoint:
+    build: .
+    restart: unless-stopped
+    environment:
+      API_KEY: ${API_KEY}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT}
+    ports:
+      - "8000:8000"
