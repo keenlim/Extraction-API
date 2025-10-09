@@ -2,6 +2,20 @@
 
 FastAPI server providing a Wrapper for Microsoft MarkItDown and Unstructured.io 
 
+### MarkItDown
+A simple service/library that converts many file types (PDF, DOCX, PPTX, images, HTML, etc.) into clean Markdown for downstream use.
+
+```
+/markitdown/extracts
+```
+
+### Unstructured.io
+A Python-first toolkit and hosted services for document parsing & chunking. Converts diverse formats (PDF, DOCX, PPTX, EML, HTML, images, etc.) into structured “elements” (Title, NarrativeText, Table, FigureCaption, etc.), with optional OCR and layout models.
+
+```
+unstructured/extracts
+```
+
 ## Installation
 
 1. Clone the repository
@@ -54,5 +68,13 @@ python3 -m extraction.main
 2. Run:
 
 ```sh
-docker-compose up --build
-```# Extraction-API
+docker compose up
+```
+## Environment Variables
+
+- `API_KEY`: The key required for endpoint authentication.
+- `AZURE_OPENAI_API_KEY`: Your Azure OpenAI API key.
+- `AZURE_OPENAI_ENDPOINT`: Your Azure OpenAI endpoint URL.
+- `AZURE_OPENAI_API_VERSION`: Azure OpenAI API version.
+- `AZURE_OPENAI_DEPLOYMENT`: Azure OpenAI deployment name for the model to use.
+- `PORT`: The port the API will run on (default 8080).
