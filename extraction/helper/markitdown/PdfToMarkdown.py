@@ -20,8 +20,13 @@ class PDFToMarkdown:
         """
         try:
             if format_type == "FlateDecode":
-                # Try to interpret as PNG-like data
-                with Image.open(io.BytesIO(image_data)) as img:
+            # Try to interpret as PNG-like data
+                img = None
+                try:
+                    # First try to load as a direct image
+                    with Image.open(io.BytesIO(image_data)) as im:
+                        img = im.convert("RGBA") if im.mode in ("P", "LA") else im.copy()
+                except Exception:
                     # If that fails, try to interpret as raw RGBA/RGB data
                     if not width or not height:
                         return None, None
