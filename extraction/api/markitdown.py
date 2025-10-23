@@ -38,7 +38,7 @@ async def convert_markdown(
     api_key: str | None = Header(None, alias="API_KEY", description="API key for endpoint authentication"),
     enrich_pdf: bool = Query(False, description="If true and input is a PDF, include inline image descriptions"),
     include_images: bool = Query(True, description="When enrich_pdf=true for PDFs, include original images inline before their descriptions; if false, include only descriptions"),
-    model_provider: ModelProvider = Query(ModelProvider.AZURE_OPENAI, description="AI model provider to use for image description"),
+    model_provider: ModelProvider = Query(ModelProvider.AWS_BEDROCK, description="AI model provider to use for image description"),
 ):
     markitdownHelper = MarkitDownHelper()
 

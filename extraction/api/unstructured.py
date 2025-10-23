@@ -63,6 +63,8 @@ async def extract_text_document(file: UploadFile):
             **parsing_config
         )
 
+        print(elements)
+
         if elements is None:
             raise HTTPException(
                 status_code=int(HTTPStatus.UNPROCESSABLE_ENTITY),

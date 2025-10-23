@@ -21,10 +21,7 @@ class PDFToMarkdown:
         try:
             if format_type == "FlateDecode":
                 # Try to interpret as PNG-like data
-                try:
-                    # First try to load as a direct image
-                    img = Image.open(io.BytesIO(image_data))
-                except Exception:
+                with Image.open(io.BytesIO(image_data)) as img:
                     # If that fails, try to interpret as raw RGBA/RGB data
                     if not width or not height:
                         return None, None
@@ -55,38 +52,36 @@ class PDFToMarkdown:
                     
             else:  # Generic
                 try:
-                    # Try to load as a standard image format
-                    img = Image.open(io.BytesIO(image_data))
+                    with Image.open(io.BytesIO(image_data)) as img:
+                        # Convert to RGB if necessary (remove alpha channel, handle grayscale)
+                        if img.mode in ("RGBA", "P"):
+                            # Create white background for transparency
+                            background = Image.new("RGB", img.size, (255, 255, 255))
+                            if img.mode == "P":
+                                img = img.convert("RGBA")
+                            background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
+                            img = background
+                        elif img.mode not in ("RGB", "L"):
+                            img = img.convert("RGB")
+
+                        # Validate image dimensions
+                        if img.width < 10 or img.height < 10:
+                            logger.debug(f"Image too small: {img.width}x{img.height}")
+                            return None, None
+                            
+                        if img.width * img.height > 4096 * 4096:  # Reasonable size limit
+                            logger.debug(f"Image too large: {img.width}x{img.height}")
+                            return None, None
+
+                        # Convert to JPEG
+                        output_buffer = io.BytesIO()
+                        img.save(output_buffer, format="JPEG", quality=85, optimize=True)
+                        jpeg_data = output_buffer.getvalue()
+                        
+                        logger.debug(f"Successfully converted {format_type} image to JPEG ({len(jpeg_data)} bytes)")
+                        return jpeg_data, "image/jpeg"
                 except Exception:
                     return None, None
-
-            # Convert to RGB if necessary (remove alpha channel, handle grayscale)
-            if img.mode in ("RGBA", "P"):
-                # Create white background for transparency
-                background = Image.new("RGB", img.size, (255, 255, 255))
-                if img.mode == "P":
-                    img = img.convert("RGBA")
-                background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
-                img = background
-            elif img.mode not in ("RGB", "L"):
-                img = img.convert("RGB")
-
-            # Validate image dimensions
-            if img.width < 10 or img.height < 10:
-                logger.debug(f"Image too small: {img.width}x{img.height}")
-                return None, None
-                
-            if img.width * img.height > 4096 * 4096:  # Reasonable size limit
-                logger.debug(f"Image too large: {img.width}x{img.height}")
-                return None, None
-
-            # Convert to JPEG
-            output_buffer = io.BytesIO()
-            img.save(output_buffer, format="JPEG", quality=85, optimize=True)
-            jpeg_data = output_buffer.getvalue()
-            
-            logger.debug(f"Successfully converted {format_type} image to JPEG ({len(jpeg_data)} bytes)")
-            return jpeg_data, "image/jpeg"
             
         except Exception as e:
             logger.debug(f"Failed to convert {format_type} image: {e}")
@@ -232,67 +227,67 @@ class PDFToMarkdown:
         # Process and potentially resize image using PIL
         try:
             # Load image
-            img = Image.open(io.BytesIO(image_bytes))
-            original_size = (img.width, img.height)
-            
-            # Check minimum dimensions
-            if img.width < 10 or img.height < 10:
-                logger.debug("[%s] Skipping image %d on page %d - dimensions too small (%dx%d)", 
-                        request_id, image_num, page_num, img.width, img.height)
-                return None, None
-            
-            # Check aspect ratio to avoid extremely stretched images
-            aspect_ratio = max(img.width, img.height) / min(img.width, img.height)
-            if aspect_ratio > 50:  # More lenient than before
-                logger.debug("[%s] Skipping image %d on page %d - extreme aspect ratio (%.1f)", 
-                        request_id, image_num, page_num, aspect_ratio)
-                return None, None
-            
-            # Resize if dimensions are too large (common for vision APIs: 2048x2048 max)
-            MAX_DIMENSION = 2048
-            needs_resize = img.width > MAX_DIMENSION or img.height > MAX_DIMENSION
-            
-            if needs_resize:
-                # Calculate new size maintaining aspect ratio
-                scale_factor = min(MAX_DIMENSION / img.width, MAX_DIMENSION / img.height)
-                new_width = int(img.width * scale_factor)
-                new_height = int(img.height * scale_factor)
+            with Image.open(io.BytesIO(image_bytes)) as img:
+                original_size = (img.width, img.height)
                 
-                logger.info("[%s] Resizing image %d on page %d from %dx%d to %dx%d (scale: %.2f)", 
-                        request_id, image_num, page_num, img.width, img.height, 
-                        new_width, new_height, scale_factor)
+                # Check minimum dimensions
+                if img.width < 10 or img.height < 10:
+                    logger.debug("[%s] Skipping image %d on page %d - dimensions too small (%dx%d)", 
+                            request_id, image_num, page_num, img.width, img.height)
+                    return None, None
                 
-                # Resize with high quality
-                img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                img = img_resized
-            
-            # Convert to RGB if necessary (remove alpha channel, handle grayscale)
-            if img.mode in ("RGBA", "P"):
-                # Create white background for transparency
-                background = Image.new("RGB", img.size, (255, 255, 255))
-                if img.mode == "P":
-                    img = img.convert("RGBA")
-                background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
-                img = background
-            elif img.mode not in ("RGB", "L"):
-                img = img.convert("RGB")
-            
-            # Convert to JPEG for consistency
-            output_buffer = io.BytesIO()
-            img.save(output_buffer, format="JPEG", quality=85, optimize=True)
-            processed_bytes = output_buffer.getvalue()
-            processed_mime = "image/jpeg"
-            
-            if needs_resize:
-                logger.debug("[%s] Image %d on page %d processed: %s -> %s, %d -> %d bytes", 
-                            request_id, image_num, page_num, 
-                            f"{original_size[0]}x{original_size[1]}", f"{img.width}x{img.height}",
-                            len(image_bytes), len(processed_bytes))
-            else:
-                logger.debug("[%s] Image %d on page %d processed: %dx%d, %d bytes", 
-                            request_id, image_num, page_num, img.width, img.height, len(processed_bytes))
-            
-            return processed_bytes, processed_mime
+                # Check aspect ratio to avoid extremely stretched images
+                aspect_ratio = max(img.width, img.height) / min(img.width, img.height)
+                if aspect_ratio > 50:  # More lenient than before
+                    logger.debug("[%s] Skipping image %d on page %d - extreme aspect ratio (%.1f)", 
+                            request_id, image_num, page_num, aspect_ratio)
+                    return None, None
+                
+                # Resize if dimensions are too large (common for vision APIs: 2048x2048 max)
+                MAX_DIMENSION = 2048
+                needs_resize = img.width > MAX_DIMENSION or img.height > MAX_DIMENSION
+                
+                if needs_resize:
+                    # Calculate new size maintaining aspect ratio
+                    scale_factor = min(MAX_DIMENSION / img.width, MAX_DIMENSION / img.height)
+                    new_width = int(img.width * scale_factor)
+                    new_height = int(img.height * scale_factor)
+                    
+                    logger.info("[%s] Resizing image %d on page %d from %dx%d to %dx%d (scale: %.2f)", 
+                            request_id, image_num, page_num, img.width, img.height, 
+                            new_width, new_height, scale_factor)
+                    
+                    # Resize with high quality
+                    img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                    img = img_resized
+                
+                # Convert to RGB if necessary (remove alpha channel, handle grayscale)
+                if img.mode in ("RGBA", "P"):
+                    # Create white background for transparency
+                    background = Image.new("RGB", img.size, (255, 255, 255))
+                    if img.mode == "P":
+                        img = img.convert("RGBA")
+                    background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
+                    img = background
+                elif img.mode not in ("RGB", "L"):
+                    img = img.convert("RGB")
+                
+                # Convert to JPEG for consistency
+                output_buffer = io.BytesIO()
+                img.save(output_buffer, format="JPEG", quality=85, optimize=True)
+                processed_bytes = output_buffer.getvalue()
+                processed_mime = "image/jpeg"
+                
+                if needs_resize:
+                    logger.debug("[%s] Image %d on page %d processed: %s -> %s, %d -> %d bytes", 
+                                request_id, image_num, page_num, 
+                                f"{original_size[0]}x{original_size[1]}", f"{img.width}x{img.height}",
+                                len(image_bytes), len(processed_bytes))
+                else:
+                    logger.debug("[%s] Image %d on page %d processed: %dx%d, %d bytes", 
+                                request_id, image_num, page_num, img.width, img.height, len(processed_bytes))
+                
+                return processed_bytes, processed_mime
             
         except Exception as e:
             logger.warning("[%s] Skipping image %d on page %d - processing failed: %s", 
@@ -357,8 +352,13 @@ class PDFToMarkdown:
                 body=json.dumps(body)
             )
             
-            # Parse the response
-            response_body = json.loads(response['body'].read())
+            # Parse the response and add explicit timeout & streaming read close 
+            try:
+                response_body = json.loads(response['body'].read())
+            finally:
+                # Ensure that the stream is closed 
+                response["body"].close()
+
             content = response_body.get('content', [])
             
             if content and len(content) > 0:
@@ -383,6 +383,12 @@ class PDFToMarkdown:
         request_id: str, 
         include_images: bool = True 
     ) -> str: 
+        """
+        Enriched PDF conversion:
+            - Extracts per-page text via pypdf
+            - Extracts embedded images and obtain AI descriptions 
+            - include_images=False -> Only description will be included
+        """
         reader = PdfReader(pdf_path)
         markdown_output: list[str] = []
 
