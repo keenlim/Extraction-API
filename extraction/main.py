@@ -1,10 +1,11 @@
 from fastapi import FastAPI
-from extraction.api import unstructured, markitdown
+from extraction.api import unstructured, markitdown, marker
 
 app = FastAPI()
 
 app.include_router(unstructured.router, prefix="/unstructured")
 app.include_router(markitdown.router, prefix="/markitdown")
+app.include_router(marker.router, prefix="/marker")
 
 
 if __name__ == "__main__":
