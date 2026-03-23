@@ -1,16 +1,15 @@
 import os 
 import shutil
-import base64 
 import datetime
 from extraction.helper.common import logging as logutil 
-from fastapi import FastAPI, UploadFile, File, Header, HTTPException, Request, Query, APIRouter
+from extraction.helper.common.auth import validate_endpoint_api_key
+from fastapi import UploadFile, Header, HTTPException, Request, Query, APIRouter
 from http import HTTPStatus
 from extraction.helper.schemas.types import TextExtraction, ModelProvider
-from extraction.helper.markitdown.markitdownHelper import MarkitDownHelper
+from extraction.helper.common.markdown import sanitize_markdown_output
 from uuid import uuid4
 from markitdown import MarkItDown
-from typing import Any 
-from extraction.helper.markitdown.PdfToMarkdown import PDFToMarkdown
+from typing import Any
 
 
 
@@ -36,17 +35,11 @@ async def convert_markdown(
     request: Request,
     file: UploadFile,
     api_key: str | None = Header(None, alias="API_KEY", description="API key for endpoint authentication"),
-    enrich_pdf: bool = Query(False, description="If true and input is a PDF, include inline image descriptions"),
-    include_images: bool = Query(True, description="When enrich_pdf=true for PDFs, include original images inline before their descriptions; if false, include only descriptions"),
-    model_provider: ModelProvider = Query(ModelProvider.AWS_BEDROCK, description="AI model provider to use for image description"),
+    enrich_pdf: bool = Query(False, description="Deprecated. Ignored in MarkItDown endpoint."),
+    model_provider: ModelProvider = Query(ModelProvider.AWS_BEDROCK, description="Deprecated. Ignored in MarkItDown endpoint."),
 ):
-    markitdownHelper = MarkitDownHelper()
-
-    # Validate endpoint API Key
-    await markitdownHelper.validate_api_key(request, api_key=api_key)
-
-    # Initialise AI Client
-    ai_client, model_name = markitdownHelper.initialise_AI_client(model_provider)
+    # Validate endpoint API key at router layer, independent of extraction engine.
+    await validate_endpoint_api_key(request, api_key=api_key)
 
     # Prepare temp folder
     hash = uuid4()
@@ -88,34 +81,71 @@ async def convert_markdown(
         request_id = str(hash)
         logger.info("[%s] Received request enrich_pdf=%s file=%s content_type=%s provider=%s",
                     request_id, enrich_pdf, os.path.basename(file_path), request.headers.get("content-type"), model_provider.value)
-        
-        if model_provider == ModelProvider.AZURE_OPENAI:
-            logger.info("Using Azure OpenAI endpoint")
-        else:
-            logger.info("Using AWS Bedrock model")
 
-        if enrich_pdf and (lower_name.endswith(".pdf") or request.headers.get("content-type", "").startswith("application/pdf")):
-            logger.info("[%s] Running OPTIMIZED PDF conversion (image-only to LLM) include_images=%s", request_id, include_images)
-            pdfToMarkdownHelper = PDFToMarkdown()
-            text = pdfToMarkdownHelper.convert_pdf_to_markdown_optimized(
-                file_path, 
-                ai_client,
-                model_name,
-                model_provider,
-                request_id=request_id, 
-                include_images=include_images
-            )
+        is_pdf_upload = lower_name.endswith(".pdf") or request.headers.get("content-type", "").startswith("application/pdf")
+        if model_provider == ModelProvider.AZURE_OPENAI:
+            logger.info("model_provider is deprecated and ignored by MarkItDown endpoint")
         else:
-            if model_provider == ModelProvider.AZURE_OPENAI:
-                # For Azure OpenAI, llm_model expects the deployment name 
-                md_instance = MarkItDown(llm_client=ai_client, llm_model=model_name)
+            logger.info("model_provider is deprecated and ignored by MarkItDown endpoint")
+
+        from extraction.helper.markitdown.PdfToMarkdown import PDFToMarkdown
+        pdfToMarkdownHelper = PDFToMarkdown()
+
+        if enrich_pdf:
+            logger.info("[%s] enrich_pdf is deprecated and ignored in MarkItDown endpoint", request_id)
+
+        docintel_endpoint = os.getenv("AZURE_DOC_INTEL_ENDPOINT") or os.getenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT")
+        docintel_key = os.getenv("AZURE_DOC_INTEL_KEY") or os.getenv("AZURE_DOCUMENT_INTELLIGENCE_KEY")
+        docintel_api_version = os.getenv("AZURE_DOC_INTEL_API_VERSION")
+        use_docintel = is_pdf_upload and bool(docintel_endpoint and docintel_key)
+
+        try:
+            if use_docintel:
+                from azure.core.credentials import AzureKeyCredential
+
+                md_kwargs: dict[str, Any] = {
+                    "docintel_endpoint": docintel_endpoint,
+                    "docintel_credential": AzureKeyCredential(docintel_key),
+                    "keep_data_uris": True,
+                }
+                if docintel_api_version:
+                    md_kwargs["docintel_api_version"] = docintel_api_version
+
+                md_instance = MarkItDown(**md_kwargs)
                 result = md_instance.convert(file_path)
                 text = result.text_content
+                logger.info("[%s] Converted with Azure Document Intelligence mode", request_id)
             else:
-                # For Bedrock, MarkItDown maynot support it directly, use basic converstion
+                if is_pdf_upload:
+                    logger.info("[%s] Azure Document Intelligence credentials not set; using standard MarkItDown path", request_id)
                 md_instance = MarkItDown()
                 result = md_instance.convert(file_path)
-                text = result.text_content 
+                text = result.text_content
+                if is_pdf_upload:
+                    image_markdown = pdfToMarkdownHelper.extract_pdf_images_markdown(
+                        file_path,
+                        request_id=request_id,
+                    )
+                    if image_markdown:
+                        text = f"{(text or '').strip()}\n\n---\n\n## Extracted Images\n\n{image_markdown}".strip()
+        except Exception as exc:
+            if is_pdf_upload:
+                logger.warning(
+                    "[%s] MarkItDown conversion failed; using local PDF fallback: %s",
+                    request_id,
+                    exc,
+                )
+                text = pdfToMarkdownHelper.convert_pdf_to_markdown_local(
+                    file_path,
+                    request_id=request_id,
+                    include_images=True,
+                    include_page_text=True,
+                )
+            else:
+                raise
+
+        if is_pdf_upload:
+            text = sanitize_markdown_output(text or "")
 
         # Generating metadata
         metadata: dict[str, Any] = {

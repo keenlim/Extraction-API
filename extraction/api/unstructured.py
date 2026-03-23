@@ -2,12 +2,13 @@ import datetime
 
 from unstructured.partition.auto import partition 
 
-from fastapi import UploadFile, HTTPException, APIRouter
+from fastapi import UploadFile, HTTPException, APIRouter, Header, Request
 
 from http import HTTPStatus
 
 from extraction.helper.unstructured.unstructuredHelper import UnstructuredHelper
 from extraction.helper.schemas.types import TextExtraction
+from extraction.helper.common.auth import validate_endpoint_api_key
 
 from typing import Any
 
@@ -32,7 +33,11 @@ helper_function = UnstructuredHelper()
             }
         }
         )
-async def extract_text_document(file: UploadFile):
+async def extract_text_document(
+    request: Request,
+    file: UploadFile,
+    api_key: str | None = Header(None, alias="API_KEY", description="API key for endpoint authentication"),
+):
     """
     Extract text from an uploaded file.
 
@@ -42,6 +47,9 @@ async def extract_text_document(file: UploadFile):
     Returns:
         TextExtraction: The extracted text, metadata and token count for the uploaded file
     """
+    # Raise exception when more than 1 file is uploaded
+    await validate_endpoint_api_key(request, api_key=api_key)
+
     # Raise exception when more than 1 file is uploaded
     await helper_function.validate_max_files([file])
 
@@ -74,7 +82,7 @@ async def extract_text_document(file: UploadFile):
         # Convert extracted text to Markdown to facilitate LLM readability 
         markdown: str = "\n".join(
             [
-                helper_function.convert_unstructured_element_to_markdown(i)
+                helper_function.convert_unstructured_element_to_markdown(i, include_images=True)
                 for i in elements
             ]
         )
