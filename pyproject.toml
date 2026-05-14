@@ -8,6 +8,7 @@ dependencies = [
     "boto3>=1.40.48",
     "fastapi[standard]>=0.118.0",
     "html2text>=2025.4.15",
+    "marker-pdf>=1.10.2",
     "markitdown[all]>=0.1.3",
     "openai>=2.2.0",
     "pdfreader>=0.1.15",

@@ -13,6 +13,106 @@ class PDFToMarkdown:
     def __init__(self):
         pass
 
+    def convert_pdf_to_markdown_local(
+        self,
+        pdf_path: str,
+        *,
+        request_id: str = "markitdown-fallback",
+        include_images: bool = True,
+        include_page_text: bool = True,
+    ) -> str:
+        """Fallback PDF conversion using pypdf text + extracted inline images."""
+        reader = PdfReader(pdf_path)
+        markdown_output: list[str] = []
+
+        if include_page_text:
+            for i, page in enumerate(reader.pages):
+                page_num = i + 1
+                try:
+                    text = (page.extract_text() or "").strip()
+                    if text:
+                        markdown_output.append(text)
+                except Exception as exc:
+                    logger.warning("[%s] Could not extract page text for page %d: %s", request_id, page_num, exc)
+
+        if include_images:
+            image_markdown = self.extract_pdf_images_markdown(pdf_path, request_id=request_id)
+            if image_markdown:
+                markdown_output.append("---\n\n## Extracted Images\n\n" + image_markdown)
+
+        return "\n\n".join(markdown_output).strip()
+
+    def extract_pdf_images_markdown(self, pdf_path: str, *, request_id: str = "markitdown") -> str:
+        """Extract embedded PDF images and return markdown image tags with data URLs."""
+        reader = PdfReader(pdf_path)
+        image_blocks: list[str] = []
+
+        for i, page in enumerate(reader.pages):
+            page_num = i + 1
+            images_info = self._extract_images_via_page_images(page)
+            if not images_info:
+                # Fallback to legacy XObject scan for PDFs where page.images is empty.
+                images_info = self.extract_images_from_page(page)
+            if not images_info:
+                continue
+
+            for j, (image_mime, image_bytes) in enumerate(images_info):
+                try:
+                    processed_bytes, processed_mime = self._validate_and_resize_image_for_azure(
+                        image_bytes,
+                        image_mime,
+                        request_id,
+                        j + 1,
+                        page_num,
+                    )
+                    if not processed_bytes or not processed_mime:
+                        continue
+
+                    image_b64 = base64.b64encode(processed_bytes).decode("utf-8")
+                    image_blocks.append(
+                        f"![Image {j + 1} on Page {page_num}](data:{processed_mime};base64,{image_b64})"
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[%s] Failed to inline image %d on page %d: %s",
+                        request_id,
+                        j + 1,
+                        page_num,
+                        exc,
+                    )
+
+        return "\n\n".join(image_blocks).strip()
+
+    def _extract_images_via_page_images(self, page) -> list[tuple[str, bytes]]:
+        """Extract images using pypdf's ImageFile API (more robust across filter types)."""
+        results: list[tuple[str, bytes]] = []
+        try:
+            image_files = list(page.images)
+        except Exception as exc:
+            logger.debug("page.images extraction failed: %s", exc)
+            return results
+
+        for image_file in image_files:
+            data = getattr(image_file, "data", None)
+            if not data:
+                continue
+
+            name = (getattr(image_file, "name", "") or "").lower()
+            if name.endswith(".jpg") or name.endswith(".jpeg"):
+                mime_type = "image/jpeg"
+            elif name.endswith(".png"):
+                mime_type = "image/png"
+            elif name.endswith(".webp"):
+                mime_type = "image/webp"
+            elif name.endswith(".jp2") or name.endswith(".jpx"):
+                mime_type = "image/jp2"
+            else:
+                mime_type = "image/png"
+
+            results.append((mime_type, data))
+
+        return results
+
     def _convert_image_to_jpeg(self, image_data: bytes, width: int, height: int, format_type: str) -> tuple[bytes | None, str | None]:
         """Convert various image formats to JPEG for Azure OpenAI compatibility.
         
@@ -386,13 +486,15 @@ class PDFToMarkdown:
         model_provider: ModelProvider,
         *,
         request_id: str, 
-        include_images: bool = True 
+        include_images: bool = True,
+        include_page_text: bool = True,
     ) -> str: 
         """
         Enriched PDF conversion:
             - Extracts per-page text via pypdf
             - Extracts embedded images and obtain AI descriptions 
             - include_images=False -> Only description will be included
+            - include_page_text=False -> Skip pypdf page text extraction
         """
         reader = PdfReader(pdf_path)
         markdown_output: list[str] = []
@@ -402,13 +504,14 @@ class PDFToMarkdown:
             logger.info("[%s] Processing Page %d", request_id, page_num)
 
             # Extract text from the page locally 
-            try:
-                text = (page.extract_text() or "").strip()
-                if text:
-                    markdown_output.append(text)
+            if include_page_text:
+                try:
+                    text = (page.extract_text() or "").strip()
+                    if text:
+                        markdown_output.append(text)
 
-            except Exception as e:
-                logger.warning("[%s] Could not extract text from page %d: %s", request_id, page_num, e)
+                except Exception as e:
+                    logger.warning("[%s] Could not extract text from page %d: %s", request_id, page_num, e)
 
             # Extract and describe only embedded images (robust: scan XObjects and only accept JPEG/JP2)
             images_info = self.extract_images_from_page(page)
@@ -484,6 +587,5 @@ class PDFToMarkdown:
                 logger.debug("[%s] No extractable images found on page %d", request_id, page_num)
 
         return "\n\n".join(markdown_output).strip()
-
 
 

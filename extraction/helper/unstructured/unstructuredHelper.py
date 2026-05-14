@@ -3,6 +3,7 @@ from pathlib import Path
 from extraction.helper.schemas.types import APIError
 from http import HTTPStatus
 from typing import Any
+import base64
 
 import html2text
 from unstructured.partition.utils.constants import PartitionStrategy
@@ -90,7 +91,21 @@ class UnstructuredHelper():
         return self.FILE_PARSING_CONFIG["default"]
     
     @staticmethod
-    def convert_unstructured_element_to_markdown(element: Element):
+    def _extract_image_data_url(metadata: dict[str, Any]) -> str | None:
+        image_b64 = metadata.get("image_base64") or metadata.get("base64") or metadata.get("image_data")
+        if isinstance(image_b64, bytes):
+            image_b64 = base64.b64encode(image_b64).decode("utf-8")
+        if isinstance(image_b64, str):
+            image_b64 = image_b64.strip()
+            if image_b64.startswith("data:image/"):
+                return image_b64
+            if image_b64:
+                mime_type = metadata.get("image_mime_type") or metadata.get("mime_type") or "image/png"
+                return f"data:{mime_type};base64,{image_b64}"
+        return None
+
+    @staticmethod
+    def convert_unstructured_element_to_markdown(element: Element, *, include_images: bool = False):
         """
         Convert each element dictionary to a Markdown string based on its type 
 
@@ -150,9 +165,11 @@ class UnstructuredHelper():
                 # Render image text content and the Image path
                 # Image base64 is extracted in metadata instead of
                 # storing the extracted image in the figures directory
-                markdown = (
-                    f"Image Content: {text} \n\n"
-                )
+                image_data_url = UnstructuredHelper._extract_image_data_url(metadata) if include_images else None
+                if include_images and image_data_url:
+                    markdown = f"![Image]({image_data_url})\n\nImage Content: {text} \n\n"
+                else:
+                    markdown = f"Image Content: {text} \n\n"
 
             case "FigureCaption":
                 # Render figure captions as italic text

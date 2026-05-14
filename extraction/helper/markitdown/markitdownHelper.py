@@ -1,5 +1,6 @@
 import os 
-from fastapi import Request, HTTPException
+from fastapi import HTTPException
+import certifi
 from dotenv import load_dotenv
 from extraction.helper.schemas.types import ModelProvider
 from openai import AzureOpenAI
@@ -52,7 +53,8 @@ class MarkitDownHelper():
                 'bedrock-runtime',
                 aws_access_key_id=aws_access_key_id,
                 aws_secret_access_key=aws_secret_access_key,
-                region_name=aws_region
+                region_name=aws_region,
+                verify=certifi.where(),
             )
             model_name = bedrock_model_id
         
@@ -60,36 +62,3 @@ class MarkitDownHelper():
             raise HTTPException(status_code=400, detail=f"Unsupported model provider: {model_provider}")
         
         return ai_client, model_name
-    
-    async def validate_api_key(self, request: Request, api_key: str) -> None:
-        # Validate endpoint API key
-        expected_api_key = os.getenv('API_KEY')
-        print(expected_api_key)
-        if not expected_api_key:
-            raise HTTPException(status_code=500, detail="Endpoint API key not configured on server")
-        # Support multiple header conventions and proxy-safe names
-        # Primary: explicit Header param using underscore (may be stripped by some proxies)
-        provided_api_key = api_key
-        if not provided_api_key:
-            # Starlette lower-cases header names; prefer hyphenated variants that survive proxies
-            headers = request.headers
-            provided_api_key = (
-                headers.get('x-api-key')
-                or headers.get('api-key')
-                or headers.get('api_key')
-                or headers.get('x_api_key')
-                or headers.get('api_key')
-            )
-            if not provided_api_key:
-                auth_header = headers.get('authorization')
-                if auth_header and auth_header.lower().startswith('bearer '):
-                    provided_api_key = auth_header[7:].strip()
-
-        if provided_api_key != expected_api_key:
-            raise HTTPException(status_code=401, detail="Invalid or missing API key")
-        
-    
-        
-    
-
-
